@@ -128,12 +128,12 @@ function OverrideDialog({
     if (res.ok) { onSaved(data.factura); onClose() }
   }
 
-  async function handleQuitar() {
+  async function handlePendiente() {
     setLoading(true)
     const res = await fetch('/api/override', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ factura_id: factura!.id, quitar: true }),
+      body: JSON.stringify({ factura_id: factura!.id, estatus: 'pendiente' }),
     })
     const data = await res.json()
     setLoading(false)
@@ -169,9 +169,9 @@ function OverrideDialog({
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between' }}>
         <Box>
-          {isOverridden && (
-            <Button color="error" onClick={handleQuitar} disabled={loading}>
-              Quitar pago manual
+          {factura.estatus !== 'pendiente' && (
+            <Button color="warning" onClick={handlePendiente} disabled={loading}>
+              Marcar pendiente
             </Button>
           )}
         </Box>
