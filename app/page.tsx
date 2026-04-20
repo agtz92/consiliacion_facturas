@@ -31,10 +31,12 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import LogoutIcon from '@mui/icons-material/Logout'
 import TableChartIcon from '@mui/icons-material/TableChart'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  LinearProgress,
 } from '@mui/material'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -84,6 +86,117 @@ function fmt(n: number) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n)
 }
 
+// ── Pendientes summary ─────────────────────────────────────────────────────
+
+const BUCKETS = [
+  { key: 'fresh',  label: 'Recientes',  days: [0, 4],   color: '#1976d2', bg: '#e3f2fd' },
+  { key: 'warn5',  label: '+5 días',    days: [5, 9],   color: '#f57c00', bg: '#fff3e0' },
+  { key: 'warn10', label: '+10 días',   days: [10, 14], color: '#e65100', bg: '#fbe9e7' },
+  { key: 'warn15', label: '+15 días',   days: [15, Infinity], color: '#c62828', bg: '#ffebee' },
+] as const
+
+function daysSince(fechaStr: string): number {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const [y, m, d] = fechaStr.split('-').map(Number)
+  const fecha = new Date(y, m - 1, d)
+  return Math.floor((today.getTime() - fecha.getTime()) / 86_400_000)
+}
+
+function PendientesSummary({ facturas }: { facturas: Factura[] }) {
+  const pendientes = facturas.filter((f) => f.estatus === 'pendiente')
+  if (pendientes.length === 0) return null
+
+  const totalMonto = pendientes.reduce((s, f) => s + f.total, 0)
+
+  const groups = BUCKETS.map((b) => ({
+    ...b,
+    items: pendientes.filter((f) => {
+      const d = daysSince(f.fecha)
+      return d >= b.days[0] && d <= b.days[1]
+    }),
+  })).filter((g) => g.items.length > 0)
+
+  const worst = groups[groups.length - 1]
+
+  return (
+    <Accordion
+      disableGutters
+      defaultExpanded
+      sx={{
+        border: `2px solid ${worst.color}`,
+        borderRadius: 2,
+        '&:before': { display: 'none' },
+      }}
+    >
+      <AccordionSummary
+        expandIcon={<ExpandMoreIcon sx={{ color: worst.color }} />}
+        sx={{ bgcolor: worst.bg, borderRadius: 1 }}
+      >
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ width: '100%', pr: 1 }}>
+          <WarningAmberIcon sx={{ color: worst.color }} />
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" sx={{ color: worst.color, fontWeight: 700 }}>
+              {pendientes.length} factura{pendientes.length !== 1 ? 's' : ''} pendiente
+              {pendientes.length !== 1 ? 's' : ''} · {fmt(totalMonto)}
+            </Typography>
+            <LinearProgress
+              variant="determinate"
+              value={100}
+              sx={{
+                mt: 0.5,
+                height: 4,
+                borderRadius: 2,
+                bgcolor: `${worst.color}22`,
+                '& .MuiLinearProgress-bar': { bgcolor: worst.color },
+              }}
+            />
+          </Box>
+          <Stack direction="row" spacing={1}>
+            {groups.map((g) => (
+              <Chip
+                key={g.key}
+                label={`${g.label} (${g.items.length})`}
+                size="small"
+                sx={{ bgcolor: g.bg, color: g.color, fontWeight: 600, border: `1px solid ${g.color}` }}
+              />
+            ))}
+          </Stack>
+        </Stack>
+      </AccordionSummary>
+      <AccordionDetails sx={{ bgcolor: '#fafafa', p: 2 }}>
+        <Stack spacing={2}>
+          {groups.map((g) => (
+            <Box key={g.key}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: g.color }} />
+                <Typography variant="caption" sx={{ fontWeight: 700, color: g.color }}>
+                  {g.label} — {g.items.length} factura{g.items.length !== 1 ? 's' : ''} · {fmt(g.items.reduce((s, f) => s + f.total, 0))}
+                </Typography>
+              </Stack>
+              <Stack direction="row" flexWrap="wrap" gap={1}>
+                {g.items.map((f) => (
+                  <Tooltip
+                    key={f.id}
+                    title={`${f.cliente} · ${fmt(f.total)} · ${daysSince(f.fecha)} días`}
+                  >
+                    <Chip
+                      label={`${f.folio} · ${fmt(f.total)}`}
+                      size="small"
+                      variant="outlined"
+                      sx={{ borderColor: g.color, color: g.color }}
+                    />
+                  </Tooltip>
+                ))}
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+      </AccordionDetails>
+    </Accordion>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function FacturasPage() {
@@ -92,6 +205,10 @@ export default function FacturasPage() {
   const [empresa, setEmpresa] = useState('')
   const [empresas, setEmpresas] = useState<string[]>([])
   const [sheetsUrl, setSheetsUrl] = useState<string | null>(null)
+  const [mes, setMes] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
 
   const [facturas, setFacturas] = useState<Factura[]>([])
   const [loadingFacturas, setLoadingFacturas] = useState(false)
@@ -130,7 +247,9 @@ export default function FacturasPage() {
     setLoadingFacturas(true)
     setFacturaMsg('')
     try {
-      const res = await fetch(`/api/list?empresa=${encodeURIComponent(empresa)}&limit=200`)
+      const params = new URLSearchParams({ empresa, limit: '200' })
+      if (mes) params.set('mes', mes)
+      const res = await fetch(`/api/list?${params}`)
       const data = await res.json()
       setFacturas(data.facturas || [])
       setFacturaMsg(`${data.count ?? 0} facturas`)
@@ -139,7 +258,7 @@ export default function FacturasPage() {
     } finally {
       setLoadingFacturas(false)
     }
-  }, [empresa])
+  }, [empresa, mes])
 
   useEffect(() => { loadFacturas() }, [loadFacturas])
 
@@ -288,22 +407,32 @@ export default function FacturasPage() {
         </AccordionDetails>
       </Accordion>
 
-      {/* Empresa selector */}
+      {/* Empresa + Mes */}
       <Paper sx={{ p: 2, mb: 3 }}>
-        <FormControl fullWidth size="small">
-          <InputLabel>Empresa</InputLabel>
-          <Select
-            value={empresa}
-            label="Empresa"
-            onChange={(e) => setEmpresa(e.target.value)}
-          >
-            {empresas.map((emp) => (
-              <MenuItem key={emp} value={emp}>
-                {emp}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Empresa</InputLabel>
+            <Select
+              value={empresa}
+              label="Empresa"
+              onChange={(e) => setEmpresa(e.target.value)}
+            >
+              {empresas.map((emp) => (
+                <MenuItem key={emp} value={emp}>
+                  {emp}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField
+            label="Mes"
+            type="month"
+            size="small"
+            value={mes}
+            onChange={(e) => setMes(e.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
+          />
+        </Stack>
       </Paper>
 
       <Stack spacing={3}>
@@ -375,6 +504,9 @@ export default function FacturasPage() {
             </Alert>
           )}
         </Paper>
+
+        {/* Resumen de pendientes */}
+        <PendientesSummary facturas={facturas} />
 
         {/* Tabla de facturas */}
         <Paper sx={{ p: 3 }}>
