@@ -30,6 +30,12 @@ import {
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import LogoutIcon from '@mui/icons-material/Logout'
 import TableChartIcon from '@mui/icons-material/TableChart'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import {
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+} from '@mui/material'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -222,6 +228,65 @@ export default function FacturasPage() {
           </Tooltip>
         </Stack>
       </Stack>
+
+      {/* Reglas de conciliación */}
+      <Accordion disableGutters sx={{ mb: 3 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="subtitle2">¿Cómo funciona la conciliación?</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Stack spacing={2}>
+            <Box>
+              <Chip label="Pagada" color="success" size="small" sx={{ mr: 1 }} />
+              <Typography variant="body2" component="span">
+                El monto del movimiento coincide con el total de la factura (tolerancia ±$0.01){' '}
+                <strong>y</strong> el folio o alguna palabra del cliente (≥4 letras) aparece en la
+                descripción o referencia del movimiento. Ventana de fechas: hasta{' '}
+                <strong>3 días antes</strong> y <strong>28 días después</strong> de la fecha de la
+                factura.
+              </Typography>
+            </Box>
+            <Box>
+              <Chip label="Por coincidencia" color="warning" size="small" sx={{ mr: 1 }} />
+              <Typography variant="body2" component="span">
+                El monto coincide (±$0.01) pero <strong>no</strong> se identifica el folio ni el
+                cliente en el texto del movimiento. Ventana: <strong>±7 días</strong> desde la
+                fecha de la factura. La confianza baja con la distancia en días:
+              </Typography>
+              <Table size="small" sx={{ mt: 1, maxWidth: 320 }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Días de diferencia</TableCell>
+                    <TableCell align="right">Confianza</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[
+                    ['0 días', '100%'],
+                    ['1 día', '88%'],
+                    ['2 días', '75%'],
+                    ['3 días', '63%'],
+                    ['4 días', '50%'],
+                    ['5 días', '38%'],
+                    ['6 – 7 días', '30% (mínimo)'],
+                  ].map(([dias, conf]) => (
+                    <TableRow key={dias}>
+                      <TableCell>{dias}</TableCell>
+                      <TableCell align="right">{conf}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+            <Box>
+              <Chip label="Pendiente" color="default" size="small" sx={{ mr: 1 }} />
+              <Typography variant="body2" component="span">
+                No se encontró ningún movimiento que coincida en monto y fecha.
+              </Typography>
+            </Box>
+          </Stack>
+        </AccordionDetails>
+      </Accordion>
 
       {/* Empresa selector */}
       <Paper sx={{ p: 2, mb: 3 }}>
