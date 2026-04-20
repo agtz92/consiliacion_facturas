@@ -32,11 +32,17 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import TableChartIcon from '@mui/icons-material/TableChart'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import EditNoteIcon from '@mui/icons-material/EditNote'
 import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
   LinearProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -59,6 +65,8 @@ interface Factura {
   estatus: 'pendiente' | 'pagada' | 'coincidencia'
   estatus_display: string
   confianza_coincidencia: number | null
+  override_manual: boolean
+  comentario_override: string
   pago: Pago | null
 }
 
@@ -84,6 +92,104 @@ function EstatusBadge({
 
 function fmt(n: number) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n)
+}
+
+// ── Override dialog ────────────────────────────────────────────────────────
+
+function OverrideDialog({
+  factura,
+  onClose,
+  onSaved,
+}: {
+  factura: Factura | null
+  onClose: () => void
+  onSaved: (updated: Factura) => void
+}) {
+  const [comentario, setComentario] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (factura) setComentario(factura.comentario_override || '')
+  }, [factura])
+
+  if (!factura) return null
+
+  const isOverridden = factura.override_manual
+
+  async function handleSave() {
+    setLoading(true)
+    const res = await fetch('/api/override', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ factura_id: factura!.id, comentario }),
+    })
+    const data = await res.json()
+    setLoading(false)
+    if (res.ok) { onSaved(data.factura); onClose() }
+  }
+
+  async function handleQuitar() {
+    setLoading(true)
+    const res = await fetch('/api/override', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ factura_id: factura!.id, quitar: true }),
+    })
+    const data = await res.json()
+    setLoading(false)
+    if (res.ok) { onSaved(data.factura); onClose() }
+  }
+
+  return (
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <CheckCircleIcon color="success" />
+          <Box>
+            <Typography variant="subtitle1" fontWeight={700}>
+              {isOverridden ? 'Editar pago manual' : 'Marcar como pagada'}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {factura.folio} · {factura.cliente} · {fmt(factura.total)}
+            </Typography>
+          </Box>
+        </Stack>
+      </DialogTitle>
+      <DialogContent>
+        <TextField
+          label="Comentario (referencia, banco, fecha de pago…)"
+          multiline
+          rows={3}
+          fullWidth
+          value={comentario}
+          onChange={(e) => setComentario(e.target.value)}
+          autoFocus
+          sx={{ mt: 1 }}
+        />
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between' }}>
+        <Box>
+          {isOverridden && (
+            <Button color="error" onClick={handleQuitar} disabled={loading}>
+              Quitar pago manual
+            </Button>
+          )}
+        </Box>
+        <Stack direction="row" spacing={1}>
+          <Button onClick={onClose} disabled={loading}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handleSave}
+            disabled={loading || !comentario.trim()}
+            startIcon={loading ? <CircularProgress size={16} /> : <CheckCircleIcon />}
+          >
+            {isOverridden ? 'Guardar' : 'Marcar pagada'}
+          </Button>
+        </Stack>
+      </DialogActions>
+    </Dialog>
+  )
 }
 
 // ── Pendientes summary ─────────────────────────────────────────────────────
@@ -223,6 +329,12 @@ export default function FacturasPage() {
   const [movsLoading, setMovsLoading] = useState(false)
   const movsRef = useRef<HTMLInputElement>(null)
 
+  const [overrideFactura, setOverrideFactura] = useState<Factura | null>(null)
+
+  function handleOverrideSaved(updated: Factura) {
+    setFacturas((prev) => prev.map((f) => (f.id === updated.id ? updated : f)))
+  }
+
   useEffect(() => {
     fetch('/api/empresas')
       .then((r) => r.json())
@@ -321,6 +433,11 @@ export default function FacturasPage() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
+      <OverrideDialog
+        factura={overrideFactura}
+        onClose={() => setOverrideFactura(null)}
+        onSaved={handleOverrideSaved}
+      />
       {/* Header */}
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
         <Typography variant="h5">Facturación</Typography>
@@ -555,6 +672,7 @@ export default function FacturasPage() {
                     <TableCell align="right">Total</TableCell>
                     <TableCell>Estatus</TableCell>
                     <TableCell>Pago</TableCell>
+                    <TableCell />
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -581,12 +699,38 @@ export default function FacturasPage() {
                         />
                       </TableCell>
                       <TableCell>
-                        {f.pago && (
+                        {f.pago && !f.override_manual && (
                           <Typography variant="caption" color="text.secondary">
                             {f.pago.fecha} · {fmt(f.pago.monto)}
                             {f.pago.referencia && ` · ${f.pago.referencia}`}
                           </Typography>
                         )}
+                        {f.override_manual && (
+                          <Typography variant="caption" color="text.secondary">
+                            {f.comentario_override}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                        <Tooltip
+                          title={
+                            f.override_manual
+                              ? `Pago manual: ${f.comentario_override}`
+                              : 'Marcar como pagada manualmente'
+                          }
+                        >
+                          <IconButton
+                            size="small"
+                            onClick={() => setOverrideFactura(f)}
+                            sx={{ color: f.override_manual ? 'success.main' : 'action.disabled' }}
+                          >
+                            {f.override_manual ? (
+                              <CheckCircleIcon fontSize="small" />
+                            ) : (
+                              <EditNoteIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </Tooltip>
                       </TableCell>
                     </TableRow>
                   ))}
